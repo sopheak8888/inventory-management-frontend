@@ -2,12 +2,13 @@
 
 import { use } from "react";
 import Link from "next/link";
-import { ImageIcon, Pencil, SlidersHorizontal } from "lucide-react";
+import { ImageIcon } from "lucide-react";
+import { AdjustStockDialog } from "@/components/adjust-stock-dialog";
 import { ErrorNote } from "@/components/error-note";
+import { ItemDialog } from "@/components/item-dialog";
 import { PageHeader } from "@/components/page-header";
 import { Kicker, Panel, PanelTitle } from "@/components/panel";
 import { StockBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { fmtDate, fmtMoney, fmtNumber, fmtSigned } from "@/lib/format";
@@ -22,11 +23,17 @@ const MOVEMENT_LABEL = {
 
 export default function ItemDetailPage({ params }: PageProps<"/inventory/[sku]">) {
   const { sku } = use(params);
-  const { data: item, error } = useApi(() => api.inventory.getBySku(sku), [sku]);
-  const { data: history } = useApi(
+  const { data: item, error, reload: reloadItem } = useApi(() => api.inventory.getBySku(sku), [sku]);
+  const { data: history, reload: reloadHistory } = useApi(
     () => (item ? api.inventory.movements(item.id) : Promise.resolve([])),
     [item?.id],
   );
+
+  /** An adjustment changes both the item and its ledger, so both are refetched. */
+  function refresh() {
+    reloadItem();
+    reloadHistory();
+  }
 
   if (error) {
     return (
@@ -57,16 +64,14 @@ export default function ItemDetailPage({ params }: PageProps<"/inventory/[sku]">
           </div>
         }
         actions={
-          <div className="flex gap-2">
-            <Button variant="outline">
-              <Pencil className="size-4" />
-              Edit
-            </Button>
-            <Button>
-              <SlidersHorizontal className="size-4" />
-              Adjust Stock
-            </Button>
-          </div>
+          // Both need the loaded item, so they appear with it rather than as
+          // buttons that would have nothing to act on.
+          item ? (
+            <div className="flex gap-2">
+              <ItemDialog item={item} onSaved={refresh} />
+              <AdjustStockDialog item={item} onAdjusted={refresh} />
+            </div>
+          ) : null
         }
       />
 

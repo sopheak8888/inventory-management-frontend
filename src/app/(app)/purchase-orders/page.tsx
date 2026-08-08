@@ -2,12 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
 import { ErrorNote } from "@/components/error-note";
+import { NewPurchaseOrderDialog } from "@/components/new-purchase-order-dialog";
 import { PageHeader } from "@/components/page-header";
 import { Panel } from "@/components/panel";
 import { PoBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { fmtDate, fmtMoney } from "@/lib/format";
@@ -25,17 +24,23 @@ const TABS: { value: PoStatus | ""; label: string }[] = [
 
 export default function PurchaseOrdersPage() {
   const [status, setStatus] = useState<PoStatus | "">("");
-  const { data: orders, error } = useApi(() => api.purchaseOrders.list(status || undefined), [status]);
+  const { data: orders, error, reload } = useApi(
+    () => api.purchaseOrders.list(status || undefined),
+    [status],
+  );
 
   return (
     <>
       <PageHeader
         title="Purchase Orders"
         actions={
-          <Button>
-            <Plus className="size-4" />
-            New Purchase Order
-          </Button>
+          <NewPurchaseOrderDialog
+            onCreated={() => {
+              // A new order is a draft, so show the tab it actually landed on.
+              setStatus("draft");
+              reload();
+            }}
+          />
         }
       />
 

@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export default function LoginPage() {
@@ -18,10 +19,32 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (user) router.replace("/dashboard");
   }, [user, router]);
+
+  /**
+   * The API answers 204 whether or not the address exists, so the confirmation
+   * has to be worded not to reveal which — see docs/API.md §2.
+   */
+  async function sendReset() {
+    if (!email.trim()) {
+      setError("Enter your email address first, then choose Forgot password.");
+      return;
+    }
+    setError(null);
+    setResetting(true);
+    try {
+      await api.auth.requestPasswordReset(email.trim());
+      toast.success(`If ${email.trim()} has an account, a reset link is on its way.`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not send a reset link. Try again.");
+    } finally {
+      setResetting(false);
+    }
+  }
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -102,9 +125,14 @@ export default function LoginPage() {
                 <Label htmlFor="password" className="text-xs opacity-70">
                   Password
                 </Label>
-                <a href="#" className="text-xs text-primary hover:underline">
-                  Forgot password?
-                </a>
+                <button
+                  type="button"
+                  onClick={sendReset}
+                  disabled={resetting}
+                  className="text-xs text-primary hover:underline disabled:opacity-60"
+                >
+                  {resetting ? "Sending…" : "Forgot password?"}
+                </button>
               </div>
               <Input
                 id="password"

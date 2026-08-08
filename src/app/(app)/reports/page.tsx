@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Download } from "lucide-react";
+import { toast } from "sonner";
 import { ErrorNote } from "@/components/error-note";
 import { PageHeader } from "@/components/page-header";
 import { Panel, PanelTitle } from "@/components/panel";
@@ -23,6 +24,12 @@ const RANGES = [
   { value: "12m", label: "Last 12 months" },
 ];
 
+/** Quote anything containing a comma, quote or newline; double inner quotes. */
+function csvCell(value: string | number) {
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
 export default function ReportsPage() {
   const [range, setRange] = useState("30d");
   const [locationId, setLocationId] = useState("all");
@@ -39,6 +46,44 @@ export default function ReportsPage() {
 
   const trend = data?.inventoryValueTrend ?? [];
   const maxTurnover = Math.max(...(data?.turnoverByCategory ?? [{ turnover: 1 }]).map((c) => c.turnover));
+
+  /**
+   * The report is already in the browser, so the export is a Blob download
+   * rather than a round trip — no endpoint, and it exports exactly the figures
+   * on screen, filters included.
+   */
+  function exportCsv() {
+    if (!data) return;
+    const locationName =
+      locationId === "all" ? "All locations" : (locations?.find((l) => l.id === locationId)?.name ?? locationId);
+
+    const rows: (string | number)[][] = [
+      ["Stocklane report"],
+      ["Range", RANGES.find((r) => r.value === range)?.label ?? range],
+      ["Location", locationName],
+      [],
+      ["Inventory value trend"],
+      ["Date", "Value"],
+      ...trend.map((point) => [point.date, point.value]),
+      [],
+      ["Turnover by category"],
+      ["Category", "Turnover (0-1)"],
+      ...data.turnoverByCategory.map((cat) => [cat.label, cat.turnover]),
+      [],
+      ["Top movers"],
+      ["Item", "Change %"],
+      ...data.topMovers.map((mover) => [mover.itemName, mover.changePct]),
+    ];
+
+    const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `stocklane-report-${range}-${locationId}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Report exported.");
+  }
 
   return (
     <>
@@ -77,7 +122,7 @@ export default function ReportsPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline">
+            <Button variant="outline" onClick={exportCsv} disabled={!data}>
               <Download className="size-4" />
               Export
             </Button>

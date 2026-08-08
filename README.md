@@ -90,7 +90,26 @@ corner registration marks. Retune the palette there and every screen follows.
   protected pages never render for a signed-out visitor — see docs/API.md §2.
   A 401 from any call clears the session and bounces to `/login`, handled once in
   `request()`.
+
+  The guard checks the *stored* session, not just the `user` from context: the
+  first client render is the hydration render, where the auth store still reports
+  the server snapshot (null) even for a signed-in visitor. Redirecting on that
+  render sent anyone who refreshed, or opened a link to a deep page, to `/login`
+  and then on to `/dashboard` — no protected URL survived a page load.
 - **Scan takes typed/scanner input, not camera.** Hardware scanners type into the
   field, which covers the warehouse case; camera capture is a mobile-build item.
-- **Add Item, Edit, New Purchase Order, Export** are placeholder buttons — those
-  endpoints aren't built (docs/API.md §11).
+- **`useApi` is a fetch-on-deps hook with a `reload()`, not a cache.** Every write
+  path calls `reload()` on success, because a saved change that only appears after
+  a manual refresh reads as the save having done nothing. Swap the body for
+  TanStack Query if real caching or invalidation is ever needed — call sites keep
+  the same shape.
+- **Report export is a client-side CSV** of the response already on screen, so it
+  exports exactly the figures and filters the user is looking at without a round
+  trip.
+- **The item picker in "New Purchase Order" loads the supplier's first 200 SKUs**
+  and filters client-side, which covers every seeded supplier. Make it a typeahead
+  against `?search=` if a supplier's catalogue outgrows one page.
+- **Settings is admin-only** and the sidebar link is hidden for everyone else —
+  every panel behind it is `403` server-side, so showing the link only led to
+  permission errors. The route itself still explains that rather than rendering
+  four failing panels, because the URL is typeable.

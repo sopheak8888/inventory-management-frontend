@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { ErrorNote } from "@/components/error-note";
+import { ItemDialog } from "@/components/item-dialog";
 import { PageHeader } from "@/components/page-header";
 import { Panel } from "@/components/panel";
 import { StockBadge } from "@/components/status-badge";
@@ -21,27 +22,39 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { fmtNumber } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
+import type { StockStatus } from "@/lib/types";
 
 const PAGE_SIZE = 25;
+
+/** Mirrors the `?status=` values the API filters on — docs/API.md §5. */
+const STATUS_OPTIONS: { value: StockStatus | "all"; label: string }[] = [
+  { value: "all", label: "Any Status" },
+  { value: "in_stock", label: "In Stock" },
+  { value: "low", label: "Low" },
+  { value: "critical", label: "Critical" },
+  { value: "out_of_stock", label: "Out of Stock" },
+];
 
 export default function InventoryPage() {
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<string>("");
   const [locationId, setLocationId] = useState<string>("all");
+  const [status, setStatus] = useState<StockStatus | "all">("all");
   const [page, setPage] = useState(1);
 
   const { data: categories } = useApi(() => api.reference.categories(), []);
   const { data: locations } = useApi(() => api.reference.locations(), []);
-  const { data: result, error } = useApi(
+  const { data: result, error, reload } = useApi(
     () =>
       api.inventory.list({
         search: search || undefined,
         categoryId: categoryId || undefined,
         locationId: locationId === "all" ? undefined : locationId,
+        status: status === "all" ? undefined : status,
         page,
         pageSize: PAGE_SIZE,
       }),
-    [search, categoryId, locationId, page],
+    [search, categoryId, locationId, status, page],
   );
 
   const rows = result?.data ?? [];
@@ -59,10 +72,19 @@ export default function InventoryPage() {
       <PageHeader
         title="Inventory"
         actions={
-          <Button>
-            <Plus className="size-4" />
-            Add Item
-          </Button>
+          <ItemDialog
+            onSaved={(saved) => {
+              // Clear the filters and search for the new SKU, so the item the
+              // user just created is the row in front of them. Leaving a filter
+              // on that happens to exclude it reads as the save doing nothing.
+              setCategoryId("");
+              setLocationId("all");
+              setStatus("all");
+              setSearch(saved.sku);
+              setPage(1);
+              reload();
+            }}
+          />
         }
       />
 
@@ -113,6 +135,27 @@ export default function InventoryPage() {
             {(locations ?? []).map((loc) => (
               <SelectItem key={loc.id} value={loc.id}>
                 {loc.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={status}
+          onValueChange={(v) => {
+            setStatus((v as StockStatus | null) ?? "all");
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-[150px] bg-secondary">
+            <SelectValue>
+              {(v: string) => STATUS_OPTIONS.find((o) => o.value === v)?.label ?? "Any Status"}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {STATUS_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
               </SelectItem>
             ))}
           </SelectContent>

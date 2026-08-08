@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import type { BinCell } from "@/lib/types";
@@ -32,11 +33,23 @@ function bucket(fill: number) {
 }
 
 export default function WarehouseMapPage() {
-  const [locationId, setLocationId] = useState("loc-a");
+  const { user } = useAuth();
+  const [chosen, setChosen] = useState<string | null>(null);
   const [selected, setSelected] = useState<BinCell | null>(null);
 
   const { data: locations } = useApi(() => api.reference.locations(), []);
-  const { data: map, error } = useApi(() => api.warehouse.map(locationId), [locationId]);
+
+  /**
+   * Default to the user's own site, then the first location the API returns —
+   * not a hardcoded id. Staff are scoped to one location, and a warehouse worker
+   * should not open this page on someone else's floor plan.
+   */
+  const locationId = chosen ?? user?.locationId ?? locations?.[0]?.id ?? null;
+
+  const { data: map, error } = useApi(
+    () => (locationId ? api.warehouse.map(locationId) : Promise.resolve(null)),
+    [locationId],
+  );
 
   const detail = selected ?? map?.cells.find((c) => c.itemName) ?? null;
 
@@ -46,15 +59,16 @@ export default function WarehouseMapPage() {
         title="Warehouse Map"
         actions={
           <Select
-            value={locationId}
+            value={locationId ?? ""}
             onValueChange={(v) => {
-              setLocationId(v ?? "loc-a");
+              if (!v) return;
+              setChosen(v);
               setSelected(null);
             }}
           >
             <SelectTrigger className="w-[200px] bg-secondary">
               <SelectValue>
-                {(v: string) => locations?.find((l) => l.id === v)?.name ?? "…"}
+                {(v: string) => locations?.find((l) => l.id === v)?.name ?? "Loading…"}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>

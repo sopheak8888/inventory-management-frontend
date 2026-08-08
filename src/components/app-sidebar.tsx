@@ -12,6 +12,7 @@ import {
   Settings,
   TriangleAlert,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 export const NAV = [
@@ -26,6 +27,7 @@ export const NAV = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const { user } = useAuth();
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   return (
@@ -41,13 +43,17 @@ export function AppSidebar() {
         <SidebarLink key={href} href={href} label={label} Icon={Icon} active={isActive(href)} />
       ))}
 
-      <SidebarLink
-        href="/settings"
-        label="Settings"
-        Icon={Settings}
-        active={isActive("/settings")}
-        className="mt-auto"
-      />
+      {/* Every panel behind Settings is admin-only server-side, so showing the
+          link to a manager or staff member only leads to permission errors. */}
+      {user?.role === "admin" ? (
+        <SidebarLink
+          href="/settings"
+          label="Settings"
+          Icon={Settings}
+          active={isActive("/settings")}
+          className="mt-auto"
+        />
+      ) : null}
     </aside>
   );
 }

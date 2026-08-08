@@ -5,10 +5,14 @@ from exactly one place: [`src/lib/api.ts`](../src/lib/api.ts). Field names and
 types mirror [`src/lib/types.ts`](../src/lib/types.ts) — if you change a name
 here, change it in both.
 
-**Status: implemented** by the Spring Boot service in
-[inventory-management-backend](https://github.com/sopheak8888/inventory-management-backend),
-except §11. The three decisions this document originally left open were resolved
-as follows:
+**Status: fully implemented** by the Spring Boot service in
+[inventory-management-backend](https://github.com/sopheak8888/inventory-management-backend).
+Every screen's buttons are wired — the endpoints once listed as "not yet
+designed" are now §5 (`POST`/`PATCH /items`), §6 (`POST /purchase-orders` from
+lines), §10 (`PATCH /users/{id}`, `POST /locations`) and §11 (settings). Report
+export is a client-side CSV of the figures on screen and needs no endpoint.
+
+The three decisions this document originally left open were resolved as follows:
 
 | Question | Decision |
 |---|---|
@@ -164,6 +168,13 @@ One request, one screen. Returns:
 `stockTrend` should cover 30 days; roughly 9–30 points renders well.
 `recentActivity` is capped at ~10 by the UI.
 
+The frontend sends the signed-in user's own `locationId`, so a manager or staff
+member scoped to one site sees that site's dashboard and the subtitle naming it is
+accurate. When scoped, everything is that location's — totals, value, trend, low
+stock, top alerts and activity — **except** `openPurchaseOrders` and
+`awaitingReceipt`: a PO belongs to a supplier and its lines can land at several
+locations, so those two stay organisation-wide and the UI says so on the card.
+
 ---
 
 ## 5. Inventory
@@ -252,6 +263,45 @@ scan screen shows a stepper the user lands on a final number with. Write a
 Idempotency: an `Idempotency-Key` header would let us safely retry a flaky
 warehouse-Wi-Fi submit. Nice to have.
 
+### `POST /items`
+
+"Add Item" on the inventory screen. Every field is required except `barcode`:
+
+```json
+{
+  "sku": "SKU-77001",
+  "name": "Cocoa Powder 2kg",
+  "categoryId": "cat-dry",
+  "locationId": "loc-a",
+  "supplierId": "sup-north",
+  "onHand": 120,
+  "reorderPoint": 50,
+  "reorderQty": 100,
+  "unitCost": 7.4,
+  "sellPrice": 12.99,
+  "barcode": "9 99001 00001 1"
+}
+```
+
+`201` with the created `InventoryItem`. A non-zero `onHand` is also written as an
+`adjusted` movement noted "Opening stock", so the ledger reconciles from the
+first day. `409 sku_taken` / `409 barcode_taken` when either is already in use.
+
+### `PATCH /items/{id}`
+
+"Edit" on item detail. Patch semantics — an absent field is left alone:
+
+```json
+{ "name": "Cocoa Powder 2kg (fair trade)", "reorderPoint": 30 }
+```
+
+Accepts `name`, `categoryId`, `locationId`, `supplierId`, `reorderPoint`,
+`reorderQty`, `unitCost`, `sellPrice`, `barcode`. **`sku` and `onHand` are not
+editable**: the SKU identifies the row, and stock moves through
+`POST /items/{id}/adjustments` so every change leaves a movement behind. Changing
+`reorderPoint` recomputes `status`; changing `locationId` clears `bin`, which
+belongs to the old location's grid.
+
 ---
 
 ## 6. Purchase orders
@@ -297,7 +347,7 @@ Accept either the `id` or the `number` in the path if that's cheap — the UI li
 
 ### `POST /purchase-orders`
 
-Called by "Create Purchase Orders" on the reorder-alerts screen:
+One endpoint, two shapes. From the reorder-alerts screen:
 
 ```json
 { "fromAlertIds": ["ra-1", "ra-4"] }
@@ -306,6 +356,26 @@ Called by "Create Purchase Orders" on the reorder-alerts screen:
 Returns the created `PurchaseOrder[]` — plural, because alerts spanning multiple
 suppliers must **split into one draft PO per supplier**. Created orders should be
 `draft` so a human confirms before anything is sent.
+
+From "New Purchase Order", where the user assembles the lines by hand:
+
+```json
+{
+  "supplierId": "sup-north",
+  "expectedDate": "2026-09-01",
+  "lines": [{ "itemId": "itm-10234", "expectedQty": 75, "unitCost": 18.4 }]
+}
+```
+
+Still returns an array, of one. `unitCost` is optional and falls back to the
+item's own cost. Rules:
+
+- `400 invalid_purchase_order` when neither `fromAlertIds` nor `lines` is given,
+  or when both are
+- `422 supplier_mismatch` when a line's item comes from a different supplier —
+  one order cannot ask two companies to ship
+- `400 duplicate_line` when the same item appears twice; combine the quantities
+- `orderDate` stays null: a draft has not been ordered yet
 
 ### `POST /purchase-orders/{id}/receipts`
 
@@ -382,10 +452,18 @@ take explicit dates, say so and we'll send `from`/`to` as ISO dates instead.
 absolute turnover ratios would also work if you normalise them). `label` is the
 short axis label — 3 characters renders best. `changePct` is signed.
 
+`locationId` scopes **all four** figures, not just the movement-derived ones:
+`inventory_snapshots` carries a nullable location column, so a null selects the
+organisation-wide series and a value selects that location's. Summing the
+per-location rows into the total would double-count, which is why the query picks
+one series rather than aggregating.
+
 ### Export
 
-The Export button is not wired up. When you're ready, `GET
-/reports/export?format=csv&…` returning a file download is all we need.
+Export is a **client-side CSV** built from the response already on screen, so it
+exports exactly the figures the user is looking at, filters included, and needs
+no endpoint. If a server-side export is ever wanted for scheduled reports,
+`GET /reports/export?format=csv&…` remains the obvious shape.
 
 ---
 
@@ -439,18 +517,67 @@ Admin only → `403` otherwise.
 
 Returns the new `TeamMember` with `status: "invited"`. Sends the invite email.
 
+### `PATCH /users/{id}`
+
+The inline role, location and status controls on the Users & Roles tab. Admin
+only. Patch semantics, with one exception worth knowing:
+
+```json
+{ "role": "manager", "locationId": "", "status": "active" }
+```
+
+`locationId: ""` **clears** the restriction to all locations, so empty is a
+value, not "unchanged" — only `undefined`/absent means leave alone. Name and
+email are not editable here; they belong to the account holder.
+
+- `422 cannot_demote_self` / `422 cannot_disable_self` — an admin who demotes or
+  disables themselves locks everyone out of this screen
+- `422 no_password_set` when activating an invitee who hasn't set a password
+- `400 invalid_role` / `400 invalid_status` / `400 invalid_location`
+
+### `POST /locations`
+
+"Add location" on the Locations tab. Admin only.
+
+```json
+{ "name": "Warehouse C", "capacity": 500 }
+```
+
+`201` with the new `Location`. The location is created **with its bin grid** —
+the same 12 × 4 layout every other location has — otherwise its warehouse map
+would render empty. `capacity` is the SKU count the utilisation bars divide by.
+`409 location_exists` on a duplicate name (names are matched case-insensitively,
+which is what lets the Users tab resolve a `locationLabel` back to an id).
+
 ---
 
-## 11. Not yet designed
+## 11. Settings
 
-These screens have buttons but no endpoint. Flag them when you start so we can
-agree on shapes:
+### `GET /settings` · `PATCH /settings`
 
-- `POST /items` — "Add Item"
-- `PATCH /items/{id}` — "Edit" on item detail
-- `POST /purchase-orders` from scratch — "New Purchase Order"
-- `GET`/`PATCH /settings` — the General and Notifications tabs
-- `POST /locations`, `PATCH /users/{id}` — locations and role management
+The General and Notifications tabs. Admin only. One organisation, one row.
+
+```json
+{
+  "organisationName": "Stocklane",
+  "currency": "USD",
+  "fiscalYearStartMonth": 1,
+  "alertDigestEnabled": true,
+  "alertDigestEmail": "ops@stocklane.co",
+  "alertDigestFrequency": "daily",
+  "criticalThresholdPct": 25
+}
+```
+
+`PATCH` takes any subset, so the two tabs save independently without clobbering
+each other. `currency` is validated as an ISO 4217 code and stored uppercase;
+`alertDigestFrequency` is `daily` or `weekly`.
+
+**`criticalThresholdPct` is read-only.** It is the §5 rule, reported so the UI
+can state the threshold in force rather than hardcoding "25%" in a paragraph. It
+is not a setting because `Item.status` is a stored column derived from it —
+making it writable means recomputing every item on save, and the frontend shows
+it as the rule, not a field.
 
 ---
 

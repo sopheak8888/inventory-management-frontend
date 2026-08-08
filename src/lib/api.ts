@@ -18,7 +18,11 @@ import type {
   DashboardSummary,
   InventoryItem,
   InventoryQuery,
+  ItemEditInput,
   Location,
+  NewItemInput,
+  NewPurchaseOrderInput,
+  OrgSettings,
   Paginated,
   PurchaseOrder,
   ReceiveShipmentInput,
@@ -28,6 +32,7 @@ import type {
   StockMovement,
   Supplier,
   TeamMember,
+  TeamMemberEditInput,
   WarehouseMap,
 } from "./types";
 
@@ -206,6 +211,12 @@ export const api = {
     categories: (): Promise<Category[]> => (MOCK ? mock(fixtures.categories) : request("/categories")),
     /** GET /suppliers */
     suppliers: (): Promise<Supplier[]> => (MOCK ? mock(fixtures.suppliers) : request("/suppliers")),
+
+    /** POST /locations — admin only */
+    createLocation: (payload: { name: string; capacity: number }): Promise<Location> =>
+      MOCK
+        ? mock({ id: `loc-${payload.name}`, name: payload.name, skuCount: 0, utilisation: 0 }, 500)
+        : request("/locations", { method: "POST", body: JSON.stringify(payload) }),
   },
 
   dashboard: {
@@ -267,6 +278,25 @@ export const api = {
       if (!item) throw new ApiError(404, "Item not found.");
       return mock({ ...item, onHand: payload.newQty });
     },
+
+    /** POST /items */
+    create(payload: NewItemInput): Promise<InventoryItem> {
+      if (!MOCK) return request("/items", { method: "POST", body: JSON.stringify(payload) });
+      if (fixtures.items.some((i) => i.sku.toLowerCase() === payload.sku.trim().toLowerCase())) {
+        throw new ApiError(409, `An item with SKU ${payload.sku} already exists.`);
+      }
+      return mock({ ...fixtures.items[0], ...payload, id: `itm-${payload.sku}` }, 500);
+    },
+
+    /** PATCH /items/{id} */
+    update(itemId: string, payload: ItemEditInput): Promise<InventoryItem> {
+      if (!MOCK) {
+        return request(`/items/${itemId}`, { method: "PATCH", body: JSON.stringify(payload) });
+      }
+      const item = fixtures.items.find((i) => i.id === itemId);
+      if (!item) throw new ApiError(404, "Item not found.");
+      return mock({ ...item, ...payload }, 500);
+    },
   },
 
   purchaseOrders: {
@@ -293,6 +323,12 @@ export const api = {
             body: JSON.stringify({ fromAlertIds: alertIds }),
           }),
 
+    /** POST /purchase-orders — the same endpoint, given lines instead of alerts */
+    create: (input: NewPurchaseOrderInput): Promise<PurchaseOrder[]> =>
+      MOCK
+        ? mock(fixtures.purchaseOrders.slice(0, 1), 600)
+        : request("/purchase-orders", { method: "POST", body: JSON.stringify(input) }),
+
     /** POST /purchase-orders/{id}/receipts */
     receive: (input: ReceiveShipmentInput): Promise<PurchaseOrder> =>
       MOCK
@@ -304,8 +340,9 @@ export const api = {
   },
 
   reorderAlerts: {
-    /** GET /reorder-alerts?severity= */
-    list: (): Promise<ReorderAlert[]> => (MOCK ? mock(fixtures.reorderAlerts) : request("/reorder-alerts")),
+    /** GET /reorder-alerts?severity=&locationId= */
+    list: (locationId?: string): Promise<ReorderAlert[]> =>
+      MOCK ? mock(fixtures.reorderAlerts) : request("/reorder-alerts", { query: { locationId } }),
   },
 
   reports: {
@@ -333,5 +370,52 @@ export const api = {
       MOCK
         ? mock({ ...fixtures.team[3], email: payload.email }, 500)
         : request("/users/invitations", { method: "POST", body: JSON.stringify(payload) }),
+
+    /**
+     * PATCH /users/{id} — role, location and status only.
+     *
+     * `locationId: ""` clears the restriction to all locations, so it is a
+     * meaningful value and must not be dropped as empty. `undefined` means
+     * "leave alone".
+     */
+    update: (userId: string, payload: TeamMemberEditInput): Promise<TeamMember> => {
+      if (!MOCK) {
+        return request(`/users/${userId}`, { method: "PATCH", body: JSON.stringify(payload) });
+      }
+      const member = fixtures.team.find((m) => m.id === userId);
+      if (!member) throw new ApiError(404, "That user no longer exists.");
+      return mock({ ...member, ...payload } as TeamMember, 400);
+    },
+  },
+
+  settings: {
+    /** GET /settings — admin only */
+    get: (): Promise<OrgSettings> =>
+      MOCK
+        ? mock({
+            organisationName: "Stocklane",
+            currency: "USD",
+            fiscalYearStartMonth: 1,
+            alertDigestEnabled: true,
+            alertDigestEmail: "ops@stocklane.co",
+            alertDigestFrequency: "daily" as const,
+            criticalThresholdPct: 25,
+          })
+        : request("/settings"),
+
+    /** PATCH /settings — only the fields a tab owns are sent */
+    update: (payload: Partial<Omit<OrgSettings, "criticalThresholdPct">>): Promise<OrgSettings> =>
+      MOCK
+        ? mock({
+            organisationName: "Stocklane",
+            currency: "USD",
+            fiscalYearStartMonth: 1,
+            alertDigestEnabled: true,
+            alertDigestEmail: "ops@stocklane.co",
+            alertDigestFrequency: "daily" as const,
+            criticalThresholdPct: 25,
+            ...payload,
+          } as OrgSettings, 500)
+        : request("/settings", { method: "PATCH", body: JSON.stringify(payload) }),
   },
 };

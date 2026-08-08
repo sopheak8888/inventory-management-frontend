@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fmtMoneyCompact, fmtNumber, fmtPct, fmtSigned, fmtWhen } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
-import type { TrendPoint } from "@/lib/types";
+import type { Location, TrendPoint } from "@/lib/types";
 
 const ACTION_LABEL = {
   received: "Received",
@@ -21,7 +21,13 @@ const ACTION_LABEL = {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { data, error } = useApi(() => api.dashboard.summary(), []);
+  // Scoped users get their own site's figures, so the subtitle naming one
+  // location isn't sitting above organisation-wide numbers.
+  const { data, error } = useApi(
+    () => api.dashboard.summary(user?.locationId ?? undefined),
+    [user?.locationId],
+  );
+  const { data: locations } = useApi(() => api.reference.locations(), []);
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -32,8 +38,8 @@ export default function DashboardPage() {
   return (
     <>
       <PageHeader
-        title={`Good morning, ${user?.name.split(" ")[0] ?? "there"}`}
-        subtitle={`${today} · Warehouse A + 2 more locations`}
+        title={`${greeting()}, ${user?.name.split(" ")[0] ?? "there"}`}
+        subtitle={`${today} · ${scopeLabel(locations, user?.locationId ?? null)}`}
       />
 
       <div className="flex-1 px-6 py-7 lg:px-9">
@@ -52,12 +58,28 @@ export default function DashboardPage() {
           <Stat
             kicker="Low Stock Items"
             value={data ? fmtNumber(data.lowStockItems) : "—"}
-            foot={data ? <span className="text-xs opacity-60">across {data.lowStockLocations} locations</span> : null}
+            foot={
+              data ? (
+                <span className="text-xs opacity-60">
+                  across {data.lowStockLocations} location{data.lowStockLocations === 1 ? "" : "s"}
+                </span>
+              ) : null
+            }
           />
           <Stat
             kicker="Open Purchase Orders"
             value={data ? fmtNumber(data.openPurchaseOrders) : "—"}
-            foot={data ? <span className="text-xs opacity-60">{data.awaitingReceipt} awaiting receipt</span> : null}
+            // A purchase order belongs to a supplier, not a location, so this
+            // count stays organisation-wide even for a scoped user — said out
+            // loud rather than left to look like a scoping bug.
+            foot={
+              data ? (
+                <span className="text-xs opacity-60">
+                  {data.awaitingReceipt} awaiting receipt
+                  {user?.locationId ? " · all locations" : ""}
+                </span>
+              ) : null
+            }
           />
           <Stat
             kicker="Inventory Value"
@@ -127,6 +149,28 @@ export default function DashboardPage() {
       </div>
     </>
   );
+}
+
+/** "Good morning" at 8pm read as a bug in a warehouse that runs night shifts. */
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+/**
+ * What these totals actually cover. Replaces a hardcoded "Warehouse A + 2 more
+ * locations" that stayed put whatever the database held — and names the count
+ * rather than one arbitrary site, because the figures below are the whole
+ * organisation's, not that site's.
+ */
+function scopeLabel(locations: Location[] | null, ownLocationId: string | null) {
+  if (ownLocationId) {
+    return locations?.find((l) => l.id === ownLocationId)?.name ?? "Your location";
+  }
+  if (!locations?.length) return "All locations";
+  return locations.length === 1 ? locations[0].name : `All ${locations.length} locations`;
 }
 
 function Stat({ kicker, value, foot }: { kicker: string; value: string; foot?: React.ReactNode }) {

@@ -216,3 +216,57 @@ export interface InventoryQuery {
   page?: number;
   pageSize?: number;
 }
+
+/** POST /items. Every field required — a new SKU has no defaults to fall back on. */
+export interface NewItemInput {
+  sku: string;
+  name: string;
+  categoryId: string;
+  locationId: string;
+  supplierId: string;
+  onHand: number;
+  reorderPoint: number;
+  reorderQty: number;
+  unitCost: number;
+  sellPrice: number;
+  barcode?: string;
+}
+
+/**
+ * PATCH /items/{id}. `onHand` is absent on purpose: stock moves through
+ * `api.inventory.adjust` so every change leaves a ledger entry.
+ */
+export type ItemEditInput = Partial<Omit<NewItemInput, "sku" | "onHand">>;
+
+export interface NewPurchaseOrderLineInput {
+  itemId: string;
+  expectedQty: number;
+  unitCost?: number;
+}
+
+export interface NewPurchaseOrderInput {
+  supplierId: string;
+  expectedDate?: string;
+  lines: NewPurchaseOrderLineInput[];
+}
+
+/** PATCH /users/{id}. `locationId: ""` means all locations, not "unchanged". */
+export interface TeamMemberEditInput {
+  role?: UserRole;
+  locationId?: string;
+  status?: UserStatus;
+}
+
+export type DigestFrequency = "daily" | "weekly";
+
+export interface OrgSettings {
+  organisationName: string;
+  currency: string;
+  /** 1–12 */
+  fiscalYearStartMonth: number;
+  alertDigestEnabled: boolean;
+  alertDigestEmail: string;
+  alertDigestFrequency: DigestFrequency;
+  /** Read-only: the rule in docs/API.md §5, reported so the UI can state it. */
+  criticalThresholdPct: number;
+}

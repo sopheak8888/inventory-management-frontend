@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { Panel } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { fmtNumber } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import type { AlertSeverity, ReorderAlert } from "@/lib/types";
@@ -18,7 +19,12 @@ const GROUPS: { severity: AlertSeverity; heading: string }[] = [
 ];
 
 export default function ReorderAlertsPage() {
-  const { data: alerts, error } = useApi(() => api.reorderAlerts.list(), []);
+  const { user } = useAuth();
+  // A staff member at one site should not be asked to reorder another's stock.
+  const { data: alerts, error, reload } = useApi(
+    () => api.reorderAlerts.list(user?.locationId ?? undefined),
+    [user?.locationId],
+  );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
 
@@ -38,9 +44,13 @@ export default function ReorderAlertsPage() {
     try {
       const created = await api.purchaseOrders.createFromAlerts(ids);
       toast.success(
-        `${created.length} purchase order${created.length === 1 ? "" : "s"} drafted from ${ids.length} alerts.`,
+        `${created.length} purchase order${created.length === 1 ? "" : "s"} drafted from ${ids.length} alert${ids.length === 1 ? "" : "s"}.`,
       );
       setSelected(new Set());
+      // An alert *is* an item below its reorder point, so drafting an order does
+      // not clear it — but stock can have moved since the page loaded, and the
+      // count in the subtitle has to match what is on screen.
+      reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create purchase orders.");
     } finally {
