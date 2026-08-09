@@ -98,7 +98,7 @@ function AdminSettings() {
       <div className="px-6 py-6 lg:px-9">
         {error ? <ErrorNote message={error.message} /> : null}
 
-        <Tabs defaultValue="users">
+        <Tabs defaultValue="general">
           <TabsList className="bg-secondary">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="users">Users &amp; Roles</TabsTrigger>

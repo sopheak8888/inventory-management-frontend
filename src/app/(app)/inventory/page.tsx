@@ -103,9 +103,12 @@ export default function InventoryPage() {
           />
         </div>
 
-        <div className="flex divide-x divide-border border border-border text-[13px]" role="radiogroup">
+        <div
+          className="flex max-w-full divide-x divide-border overflow-x-auto border border-border text-[13px]"
+          role="radiogroup"
+        >
           <FilterChip label="All" active={categoryId === ""} onClick={() => selectCategory("")} />
-          {(categories ?? []).slice(0, 4).map((cat) => (
+          {(categories ?? []).map((cat) => (
             <FilterChip
               key={cat.id}
               label={cat.name}
@@ -252,7 +255,7 @@ function FilterChip({
       aria-checked={active}
       onClick={onClick}
       className={cn(
-        "px-3 py-[7px] transition-colors",
+        "shrink-0 px-3 py-[7px] transition-colors",
         active ? "bg-primary text-primary-foreground" : "hover:bg-foreground/7",
       )}
     >
